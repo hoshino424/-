@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Study Tracker</title>
+    <style>
+        /* 少しだけ見た目を整えると、ユーザーの本音（やる気）が引き出しやすくなります */
+        body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; }
+        input, button { margin: 5px 0; padding: 10px; width: 100%; box-sizing: border-box; }
+        #result { background: #f0f0f0; padding: 15px; border-radius: 8px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+<h2>今日の積み上げを記録</h2>
+
+<label for="currentCategory">今の目標：</label>
+<input type="text" id="currentCategory" placeholder="例：資格勉強、ギター、早起き">
+
+<input type="text" id="action" placeholder="今日やった具体的な内容（例：関数を学んだ）">
+<input type="number" id="minutes" placeholder="分">
+
+<button onclick="sendLog()">送信</button>
+
+<hr>
+<button onclick="getAdvice()">AIにアドバイスをもらう</button>
+<div id="result" style="white-space: pre-wrap; background: #f4f4f4; padding: 10px; margin-top: 10px;"></div>
+
+<script>
+// ✅ これを貼り付ける
+async function sendLog() {
+    // 1. 各入力欄から値を取得
+    const category = document.getElementById("currentCategory").value;
+    const action = document.getElementById("action").value;
+    const minutes = document.getElementById("minutes").value;
+
+    // 2. 空欄チェック（自由入力になったので category もチェック対象！）
+    if (!category || !action || !minutes) {
+        alert("目標、内容、時間をすべて入力してください！");
+        return;
+    }
+
+    try {
+        // 3. サーバーへ送信
+        const response = await fetch("/log", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                category: category, 
+                action: action,
+                minutes: parseInt(minutes)
+            })
+        });
+
+        if (response.ok) {
+            alert("送信完了！");
+            // 入力欄をリセット（目標は残しておいた方が連続入力しやすいので action と minutes だけ）
+            document.getElementById("action").value = "";
+            document.getElementById("minutes").value = "";
+        } else {
+            alert("送信に失敗しました。");
+        }
+    } catch (error) {
+        console.error("Error:", error);
+        alert("通信エラーが発生しました。");
+    }
+}
+async function getAdvice() {
+    try {
+        const resultDiv = document.getElementById("result");
+        resultDiv.innerText = "AIがあなたのログを分析中...";
+
+        // 1. 現在選択されているカテゴリーを取得
+        const category = document.getElementById("currentCategory").value;
+
+        // 2. URLにカテゴリーをくっつけて送る
+        const response = await fetch(`/test-ai?category=${encodeURIComponent(category)}`);
+        
+        const data = await response.json();
+        
+        if (data.result) {
+            resultDiv.innerText = data.result;
+        } else {
+            resultDiv.innerText = "アドバイスを取得できませんでした。";
+        }
+    } catch (error) {
+        console.error("Error:", error);
+        document.getElementById("result").innerText = "通信エラーが発生しました。";
+    }
+}
+</script>
+       
