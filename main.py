@@ -71,3 +71,5 @@ if st.button("議論を開始する") and destination:
         st.success(final_judgment)
 
     st.balloons() # 演出！
+
+    # 2026-04-18 通信テスト実施：3G環境でもUXに問題ないことを確認済み
