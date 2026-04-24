@@ -9,7 +9,7 @@ api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
 
 # 2. ページの設定
-st.set_page_config(page_title="旅行計画エージェント", page_icon="🧳")
+st.set_page_config(page_title="旅行計画マルチエージェント", page_icon="🧳")
 
 # --- プロンプト設定（動的に前提条件を埋め込めるように変更） ---
 # 役割の定義
