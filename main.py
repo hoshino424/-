@@ -45,15 +45,15 @@ st.title("🧳 旅行計画マルチエージェント")
 st.write("出発地点と時刻を考慮した、より実用的なプランを提案します。")
 
 # 目的地入力
-destination = st.text_input("どこに旅行に行きたいですか？", placeholder="例：台湾、北海道")
+destination = st.text_input("どこにどの期間旅行に行きたいですか？", placeholder="例：北海道に二泊三日")
 
 # サイドバー：ユーザー入力
 with st.sidebar:
     st.header("旅行の条件")
     
     # 追加：出発地点と出発時刻
-    departure_loc = st.text_input("📍 出発地点※最寄りの駅など", value="西宮北口駅")
-    departure_time = st.text_input("⏰ 出発時刻", value="09:00")
+    departure_loc = st.text_input("📍 出発地点※最寄りの駅など",placeholder ="西宮北口駅")
+    departure_time = st.text_input("⏰ 出発時刻", placeholder="13時")
     
     st.divider()
     
