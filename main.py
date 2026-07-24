@@ -133,19 +133,20 @@ def load_plan_by_id(plan_id):
     result = supabase.table("plans").select("plan_content, plan_a, plan_b").eq("id", plan_id).single().execute()
     return result.data if result.data else None
 
-def save_plan_record(destination, travel_date, plan_content, plan_a, plan_b, user_id):
+def save_plan_record(destination, travel_date, plan_content, plan_a, plan_b, user_id, is_public):
     supabase.table("plans").insert({
         "destination": destination,
         "travel_date": travel_date.isoformat(),
         "plan_content": plan_content,
         "plan_a": plan_a,
         "plan_b": plan_b,
-        "user_id": user_id
+        "user_id": user_id,
+        "is_public": is_public
     }).execute()
 
 def get_saved_plans_for_user(user_id):
     result = supabase.table("plans") \
-        .select("id, destination, travel_date, created_at, plan_content, plan_a, plan_b") \
+        .select("id, destination, travel_date, created_at, plan_content, plan_a, plan_b, is_public") \
         .eq("user_id", user_id) \
         .order("created_at", desc=True) \
         .execute()
@@ -157,6 +158,7 @@ def delete_plan(plan_id):
 def get_public_plans():
     result = supabase.table("plans") \
         .select("id, destination, travel_date, created_at, plan_content, plan_a, plan_b") \
+        .eq("is_public", True) \
         .order("created_at", desc=True) \
         .execute()
     return result.data if result.data else []
@@ -357,6 +359,7 @@ if st.session_state.final_plan:
         st.code(st.session_state.share_url)
 
     if st.session_state.user_id:
+        is_public = st.checkbox("🌍 このプランをみんなに公開する", value=False)
         if st.button("💾 このプランを保存"):
             try:
                 save_plan_record(
@@ -365,7 +368,8 @@ if st.session_state.final_plan:
                     st.session_state.final_plan,
                     st.session_state.last_plan_a,
                     st.session_state.last_plan_b,
-                    st.session_state.user_id
+                    st.session_state.user_id,
+                    is_public
                 )
                 st.success("保存しました！")
             except Exception as e:
@@ -427,7 +431,8 @@ else:
     saved_plans = get_saved_plans_for_user(st.session_state.user_id)
     if saved_plans:
         for saved in saved_plans:
-            label = f"📍 {saved.get('destination') or '目的地不明'}｜🗓️ {saved.get('travel_date') or '日付不明'}｜保存日時: {saved.get('created_at')}"
+            badge = "🌍公開" if saved.get("is_public") else "🔒非公開"
+            label = f"{badge}｜📍 {saved.get('destination') or '目的地不明'}｜🗓️ {saved.get('travel_date') or '日付不明'}｜保存日時: {saved.get('created_at')}"
             with st.expander(label):
                 st.success(saved.get("plan_content"))
                 col_a, col_b = st.columns(2)
