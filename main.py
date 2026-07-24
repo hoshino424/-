@@ -115,6 +115,22 @@ def load_plan_by_id(plan_id):
     result = supabase.table("plans").select("plan_content, plan_a, plan_b").eq("id", plan_id).single().execute()
     return result.data if result.data else None
 
+def save_plan_record(destination, travel_date, plan_content, plan_a, plan_b):
+    supabase.table("plans").insert({
+        "destination": destination,
+        "travel_date": travel_date.isoformat(),
+        "plan_content": plan_content,
+        "plan_a": plan_a,
+        "plan_b": plan_b
+    }).execute()
+
+def get_all_saved_plans():
+    result = supabase.table("plans") \
+        .select("id, destination, travel_date, created_at, plan_content, plan_a, plan_b") \
+        .order("created_at", desc=True) \
+        .execute()
+    return result.data if result.data else []
+
 def get_place_details_text(place_name):
     try:
         result = gmaps.places(query=place_name)
@@ -264,6 +280,19 @@ if st.session_state.final_plan:
     if st.session_state.share_url:
         st.code(st.session_state.share_url)
 
+    if st.button("💾 このプランを保存"):
+        try:
+            save_plan_record(
+                destination,
+                travel_date,
+                st.session_state.final_plan,
+                st.session_state.last_plan_a,
+                st.session_state.last_plan_b
+            )
+            st.success("保存しました！")
+        except Exception as e:
+            st.error(f"保存に失敗しました: {e}")
+
     with st.expander("🔍 議論プロセス（旅行計画の詳細）を確認"):
         col_a, col_b = st.columns(2)
         with col_a:
@@ -283,3 +312,22 @@ if st.session_state.final_plan:
             refine_c = f"AとBを統合し、天気とリンクを維持して最終案を完成させて。"
             st.session_state.final_plan = ask_agent(ROLES["C"], st.session_state.context_info, refine_c)
             st.rerun()
+
+# --- 保存済みプラン一覧 ---
+st.divider()
+st.subheader("📚 保存済みプラン一覧")
+saved_plans = get_all_saved_plans()
+if saved_plans:
+    for saved in saved_plans:
+        label = f"📍 {saved.get('destination') or '目的地不明'}｜🗓️ {saved.get('travel_date') or '日付不明'}｜保存日時: {saved.get('created_at')}"
+        with st.expander(label):
+            st.success(saved.get("plan_content"))
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.chat_message("assistant", avatar="🌸").markdown("**Agent A (ワクワク担当)**")
+                st.write(saved.get("plan_a"))
+            with col_b:
+                st.chat_message("assistant", avatar="⚡").markdown("**Agent B (現実担当)**")
+                st.write(saved.get("plan_b"))
+else:
+    st.caption("まだ保存されたプランはありません。")
