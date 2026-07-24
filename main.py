@@ -192,8 +192,9 @@ def ask_agent(role_prompt, context, user_input):
     return response.choices[0].message.content
 
 # --- 4. UI設定 ---
-st.set_page_config(page_title="旅行計画マルチエージェント", page_icon="🧳", layout="wide")
-st.title("🧳 旅行計画マルチエージェント")
+st.set_page_config(page_title="旅行計画立て直しAI", page_icon="🧳", layout="wide")
+st.title("✈️ 旅行計画立て直しAI")
+st.caption("旅行先での営業時間や天候の変化にも、その場でスムーズに立て直せます")
 
 # --- 共有URL経由でのプラン読み込み ---
 if "plan_id" in st.query_params and st.session_state.final_plan is None:
