@@ -26,6 +26,24 @@ if "context_info" not in st.session_state:
     st.session_state.context_info = ""
 if "share_url" not in st.session_state:
     st.session_state.share_url = None
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
+if "sb_access_token" not in st.session_state:
+    st.session_state.sb_access_token = None
+if "sb_refresh_token" not in st.session_state:
+    st.session_state.sb_refresh_token = None
+
+# --- 認証セッションの復元（Streamlitは再実行のたびにsupabaseクライアントを作り直すため） ---
+if st.session_state.sb_access_token and st.session_state.sb_refresh_token:
+    try:
+        supabase.auth.set_session(st.session_state.sb_access_token, st.session_state.sb_refresh_token)
+    except Exception:
+        st.session_state.user_id = None
+        st.session_state.user_email = None
+        st.session_state.sb_access_token = None
+        st.session_state.sb_refresh_token = None
 
 # --- 2. 関数定義 ---
 def get_weather_info(city_name):
@@ -115,21 +133,26 @@ def load_plan_by_id(plan_id):
     result = supabase.table("plans").select("plan_content, plan_a, plan_b").eq("id", plan_id).single().execute()
     return result.data if result.data else None
 
-def save_plan_record(destination, travel_date, plan_content, plan_a, plan_b):
+def save_plan_record(destination, travel_date, plan_content, plan_a, plan_b, user_id):
     supabase.table("plans").insert({
         "destination": destination,
         "travel_date": travel_date.isoformat(),
         "plan_content": plan_content,
         "plan_a": plan_a,
-        "plan_b": plan_b
+        "plan_b": plan_b,
+        "user_id": user_id
     }).execute()
 
-def get_all_saved_plans():
+def get_saved_plans_for_user(user_id):
     result = supabase.table("plans") \
         .select("id, destination, travel_date, created_at, plan_content, plan_a, plan_b") \
+        .eq("user_id", user_id) \
         .order("created_at", desc=True) \
         .execute()
     return result.data if result.data else []
+
+def delete_plan(plan_id):
+    supabase.table("plans").delete().eq("id", plan_id).execute()
 
 def get_place_details_text(place_name):
     try:
@@ -174,6 +197,52 @@ if "plan_id" in st.query_params and st.session_state.final_plan is None:
         st.error("指定されたプランが見つかりませんでした。")
 
 with st.sidebar:
+    st.header("🔐 アカウント")
+    if st.session_state.user_id:
+        st.write(f"ログイン中: {st.session_state.user_email}")
+        if st.button("ログアウト"):
+            try:
+                supabase.auth.sign_out()
+            except Exception:
+                pass
+            st.session_state.user_id = None
+            st.session_state.user_email = None
+            st.session_state.sb_access_token = None
+            st.session_state.sb_refresh_token = None
+            st.rerun()
+    else:
+        login_tab, signup_tab = st.tabs(["ログイン", "新規登録"])
+        with login_tab:
+            login_email = st.text_input("メールアドレス", key="login_email")
+            login_password = st.text_input("パスワード", type="password", key="login_password")
+            if st.button("ログイン"):
+                try:
+                    auth_response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
+                    st.session_state.user_id = auth_response.user.id
+                    st.session_state.user_email = auth_response.user.email
+                    st.session_state.sb_access_token = auth_response.session.access_token
+                    st.session_state.sb_refresh_token = auth_response.session.refresh_token
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"ログインに失敗しました: {e}")
+        with signup_tab:
+            signup_email = st.text_input("メールアドレス", key="signup_email")
+            signup_password = st.text_input("パスワード", type="password", key="signup_password")
+            if st.button("新規登録"):
+                try:
+                    auth_response = supabase.auth.sign_up({"email": signup_email, "password": signup_password})
+                    if auth_response.session:
+                        st.session_state.user_id = auth_response.user.id
+                        st.session_state.user_email = auth_response.user.email
+                        st.session_state.sb_access_token = auth_response.session.access_token
+                        st.session_state.sb_refresh_token = auth_response.session.refresh_token
+                        st.rerun()
+                    else:
+                        st.info("確認メールを送信しました。メール内のリンクを確認後、ログインしてください。")
+                except Exception as e:
+                    st.error(f"新規登録に失敗しました: {e}")
+
+    st.divider()
     st.header("旅行の条件")
     travel_date = st.date_input("📅 旅行開始日", datetime.date.today())
     weekday_ja = ["月", "火", "水", "木", "金", "土", "日"][travel_date.weekday()]
@@ -280,18 +349,22 @@ if st.session_state.final_plan:
     if st.session_state.share_url:
         st.code(st.session_state.share_url)
 
-    if st.button("💾 このプランを保存"):
-        try:
-            save_plan_record(
-                destination,
-                travel_date,
-                st.session_state.final_plan,
-                st.session_state.last_plan_a,
-                st.session_state.last_plan_b
-            )
-            st.success("保存しました！")
-        except Exception as e:
-            st.error(f"保存に失敗しました: {e}")
+    if st.session_state.user_id:
+        if st.button("💾 このプランを保存"):
+            try:
+                save_plan_record(
+                    destination,
+                    travel_date,
+                    st.session_state.final_plan,
+                    st.session_state.last_plan_a,
+                    st.session_state.last_plan_b,
+                    st.session_state.user_id
+                )
+                st.success("保存しました！")
+            except Exception as e:
+                st.error(f"保存に失敗しました: {e}")
+    else:
+        st.info("ログインすると保存できます。")
 
     with st.expander("🔍 議論プロセス（旅行計画の詳細）を確認"):
         col_a, col_b = st.columns(2)
@@ -316,18 +389,46 @@ if st.session_state.final_plan:
 # --- 保存済みプラン一覧 ---
 st.divider()
 st.subheader("📚 保存済みプラン一覧")
-saved_plans = get_all_saved_plans()
-if saved_plans:
-    for saved in saved_plans:
-        label = f"📍 {saved.get('destination') or '目的地不明'}｜🗓️ {saved.get('travel_date') or '日付不明'}｜保存日時: {saved.get('created_at')}"
-        with st.expander(label):
-            st.success(saved.get("plan_content"))
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.chat_message("assistant", avatar="🌸").markdown("**Agent A (ワクワク担当)**")
-                st.write(saved.get("plan_a"))
-            with col_b:
-                st.chat_message("assistant", avatar="⚡").markdown("**Agent B (現実担当)**")
-                st.write(saved.get("plan_b"))
+if not st.session_state.user_id:
+    st.info("ログインすると自分の保存済みプランが見れます。")
 else:
-    st.caption("まだ保存されたプランはありません。")
+    saved_plans = get_saved_plans_for_user(st.session_state.user_id)
+    if saved_plans:
+        for saved in saved_plans:
+            label = f"📍 {saved.get('destination') or '目的地不明'}｜🗓️ {saved.get('travel_date') or '日付不明'}｜保存日時: {saved.get('created_at')}"
+            with st.expander(label):
+                st.success(saved.get("plan_content"))
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.chat_message("assistant", avatar="🌸").markdown("**Agent A (ワクワク担当)**")
+                    st.write(saved.get("plan_a"))
+                with col_b:
+                    st.chat_message("assistant", avatar="⚡").markdown("**Agent B (現実担当)**")
+                    st.write(saved.get("plan_b"))
+
+                confirm_key = f"confirm_delete_{saved['id']}"
+                if confirm_key not in st.session_state:
+                    st.session_state[confirm_key] = False
+
+                if not st.session_state[confirm_key]:
+                    if st.button("🗑️ 削除", key=f"delete_{saved['id']}"):
+                        st.session_state[confirm_key] = True
+                        st.rerun()
+                else:
+                    st.warning("本当に削除しますか？この操作は取り消せません。")
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button("はい、削除する", key=f"delete_yes_{saved['id']}"):
+                            try:
+                                delete_plan(saved["id"])
+                                st.session_state[confirm_key] = False
+                                st.success("削除しました。")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"削除に失敗しました: {e}")
+                    with col_no:
+                        if st.button("キャンセル", key=f"delete_no_{saved['id']}"):
+                            st.session_state[confirm_key] = False
+                            st.rerun()
+    else:
+        st.caption("まだ保存されたプランはありません。")
