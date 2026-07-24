@@ -154,6 +154,13 @@ def get_saved_plans_for_user(user_id):
 def delete_plan(plan_id):
     supabase.table("plans").delete().eq("id", plan_id).execute()
 
+def get_public_plans():
+    result = supabase.table("plans") \
+        .select("id, destination, travel_date, created_at, plan_content, plan_a, plan_b") \
+        .order("created_at", desc=True) \
+        .execute()
+    return result.data if result.data else []
+
 def get_place_details_text(place_name):
     try:
         result = gmaps.places(query=place_name)
@@ -385,6 +392,31 @@ if st.session_state.final_plan:
             refine_c = f"AとBを統合し、天気とリンクを維持して最終案を完成させて。"
             st.session_state.final_plan = ask_agent(ROLES["C"], st.session_state.context_info, refine_c)
             st.rerun()
+
+# --- みんなのプランを見る ---
+st.divider()
+st.subheader("🌍 みんなのプランを見る")
+public_plans = get_public_plans()
+if public_plans:
+    for p in public_plans:
+        label = f"📍 {p.get('destination') or '目的地不明'}｜🗓️ {p.get('travel_date') or '日付不明'}｜投稿日時: {p.get('created_at')}"
+        with st.expander(label):
+            st.success(p.get("plan_content"))
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.chat_message("assistant", avatar="🌸").markdown("**Agent A (ワクワク担当)**")
+                st.write(p.get("plan_a"))
+            with col_b:
+                st.chat_message("assistant", avatar="⚡").markdown("**Agent B (現実担当)**")
+                st.write(p.get("plan_b"))
+
+            if st.button("📋 このプランをコピーして編集する", key=f"copy_{p['id']}"):
+                st.session_state.final_plan = p.get("plan_content")
+                st.session_state.last_plan_a = p.get("plan_a")
+                st.session_state.last_plan_b = p.get("plan_b")
+                st.rerun()
+else:
+    st.caption("まだ公開されているプランはありません。")
 
 # --- 保存済みプラン一覧 ---
 st.divider()
