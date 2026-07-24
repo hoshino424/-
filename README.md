@@ -37,7 +37,7 @@ AIが生成する旅行プランの精度を検証した際、「定休日・営
 
 ## 使用技術 (Tech Stack)
 - **言語**: Python
-- **主要ライブラリ・フレームワーク**: FastAPI, Streamlit, LangChain
+- **主要ライブラリ・フレームワーク**: Streamlit, OpenAI Python SDK
 - **外部API**: OpenAI API (GPT-4o), Google Maps API, OpenWeatherMap API, Serper API
 - **インフラ・環境**: GitHub (バージョン管理), Streamlit Cloud (デプロイ), Dev Containers
 

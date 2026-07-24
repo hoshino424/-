@@ -1,9 +1,6 @@
-fastapi
-uvicorn
 openai
-pydantic
-python-multipart
 streamlit
 python-dotenv
 googlemaps
 requests
+supabase

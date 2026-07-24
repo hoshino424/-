@@ -7,11 +7,13 @@ import urllib.parse
 from openai import OpenAI
 from dotenv import load_dotenv
 import googlemaps
+from supabase import create_client, Client
 
 # 1. 初期設定
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 gmaps = googlemaps.Client(key=os.getenv('GOOGLE_MAPS_API_KEY'))
+supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 # --- セッション状態の初期化 ---
 if "final_plan" not in st.session_state:
@@ -22,6 +24,8 @@ if "last_plan_b" not in st.session_state:
     st.session_state.last_plan_b = None
 if "context_info" not in st.session_state:
     st.session_state.context_info = ""
+if "share_url" not in st.session_state:
+    st.session_state.share_url = None
 
 # --- 2. 関数定義 ---
 def get_weather_info(city_name):
@@ -98,6 +102,19 @@ def search_web_assets(query, search_type="search"):
             return assets
     except: return ""
 
+def save_plan_and_get_url(plan_content, plan_a, plan_b):
+    result = supabase.table("plans").insert({
+        "plan_content": plan_content,
+        "plan_a": plan_a,
+        "plan_b": plan_b
+    }).execute()
+    plan_id = result.data[0]["id"]
+    return f"https://jdgmmdxjnzzyxbpwnk3g7c.streamlit.app/?plan_id={plan_id}"
+
+def load_plan_by_id(plan_id):
+    result = supabase.table("plans").select("plan_content, plan_a, plan_b").eq("id", plan_id).single().execute()
+    return result.data if result.data else None
+
 def get_place_details_text(place_name):
     try:
         result = gmaps.places(query=place_name)
@@ -129,6 +146,16 @@ def ask_agent(role_prompt, context, user_input):
 # --- 4. UI設定 ---
 st.set_page_config(page_title="旅行計画マルチエージェント", page_icon="🧳", layout="wide")
 st.title("🧳 旅行計画マルチエージェント")
+
+# --- 共有URL経由でのプラン読み込み ---
+if "plan_id" in st.query_params and st.session_state.final_plan is None:
+    shared_plan = load_plan_by_id(st.query_params["plan_id"])
+    if shared_plan:
+        st.session_state.final_plan = shared_plan["plan_content"]
+        st.session_state.last_plan_a = shared_plan["plan_a"]
+        st.session_state.last_plan_b = shared_plan["plan_b"]
+    else:
+        st.error("指定されたプランが見つかりませんでした。")
 
 with st.sidebar:
     st.header("旅行の条件")
@@ -223,7 +250,20 @@ if st.session_state.final_plan:
     st.divider()
     st.subheader("⚖️ 最終判断（プラン）")
     st.success(st.session_state.final_plan)
-    
+
+    if st.button("🔗 共有用URLを発行"):
+        try:
+            st.session_state.share_url = save_plan_and_get_url(
+                st.session_state.final_plan,
+                st.session_state.last_plan_a,
+                st.session_state.last_plan_b
+            )
+        except Exception as e:
+            st.error(f"共有用URLの発行に失敗しました: {e}")
+
+    if st.session_state.share_url:
+        st.code(st.session_state.share_url)
+
     with st.expander("🔍 議論プロセス（旅行計画の詳細）を確認"):
         col_a, col_b = st.columns(2)
         with col_a:
