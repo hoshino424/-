@@ -4,6 +4,8 @@ import datetime
 import requests
 import json
 import urllib.parse
+import uuid
+import pandas as pd
 from openai import OpenAI
 from dotenv import load_dotenv
 import googlemaps
@@ -34,6 +36,10 @@ if "sb_access_token" not in st.session_state:
     st.session_state.sb_access_token = None
 if "sb_refresh_token" not in st.session_state:
     st.session_state.sb_refresh_token = None
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+if "session_logged" not in st.session_state:
+    st.session_state.session_logged = False
 
 # --- 認証セッションの復元（Streamlitは再実行のたびにsupabaseクライアントを作り直すため） ---
 if st.session_state.sb_access_token and st.session_state.sb_refresh_token:
@@ -163,6 +169,36 @@ def get_public_plans():
         .execute()
     return result.data if result.data else []
 
+def log_event(event_type, metadata=None):
+    try:
+        supabase.table("usage_logs").insert({
+            "event_type": event_type,
+            "session_id": st.session_state.session_id,
+            "metadata": metadata
+        }).execute()
+    except Exception:
+        pass
+
+def get_event_counts():
+    result = supabase.table("usage_logs").select("event_type").execute()
+    counts = {}
+    for row in result.data:
+        event_type = row.get("event_type")
+        counts[event_type] = counts.get(event_type, 0) + 1
+    return counts
+
+def _distinct_session_count(event_types):
+    result = supabase.table("usage_logs").select("session_id").in_("event_type", event_types).execute()
+    session_ids = {row["session_id"] for row in result.data if row.get("session_id")}
+    return len(session_ids)
+
+def get_funnel_counts():
+    return {
+        "visited": _distinct_session_count(["session_started"]),
+        "generated": _distinct_session_count(["plan_generated"]),
+        "action_taken": _distinct_session_count(["share_url_created", "plan_saved", "plan_copied"])
+    }
+
 def get_place_details_text(place_name):
     try:
         result = gmaps.places(query=place_name)
@@ -195,6 +231,10 @@ def ask_agent(role_prompt, context, user_input):
 st.set_page_config(page_title="旅行計画立て直しAI", page_icon="🧳", layout="wide")
 st.title("✈️ 旅行計画立て直しAI")
 st.caption("旅行先での営業時間や天候の変化にも、その場でスムーズに立て直せます")
+
+if not st.session_state.session_logged:
+    log_event("session_started")
+    st.session_state.session_logged = True
 
 # --- 共有URL経由でのプラン読み込み ---
 if "plan_id" in st.query_params and st.session_state.final_plan is None:
@@ -289,6 +329,7 @@ destination = st.text_input("目的地（英語表記で入力）と期間", pla
 
 # --- 5. メイン実行ロジック ---
 if st.button("🚀 議論を開始する") and destination:
+    log_event("plan_generated")
     dest_parts = destination.replace('　', ' ').split()
     city_name = dest_parts[0] if dest_parts else ""
 
@@ -353,6 +394,7 @@ if st.session_state.final_plan:
                 st.session_state.last_plan_a,
                 st.session_state.last_plan_b
             )
+            log_event("share_url_created")
         except Exception as e:
             st.error(f"共有用URLの発行に失敗しました: {e}")
 
@@ -372,6 +414,9 @@ if st.session_state.final_plan:
                     st.session_state.user_id,
                     is_public
                 )
+                log_event("plan_saved")
+                if is_public:
+                    log_event("plan_published")
                 st.success("保存しました！")
             except Exception as e:
                 st.error(f"保存に失敗しました: {e}")
@@ -419,6 +464,7 @@ if public_plans:
                 st.session_state.final_plan = p.get("plan_content")
                 st.session_state.last_plan_a = p.get("plan_a")
                 st.session_state.last_plan_b = p.get("plan_b")
+                log_event("plan_copied")
                 st.rerun()
 else:
     st.caption("まだ公開されているプランはありません。")
@@ -470,3 +516,29 @@ else:
                             st.rerun()
     else:
         st.caption("まだ保存されたプランはありません。")
+
+# --- 利用状況（開発者専用） ---
+if st.session_state.user_id and st.session_state.user_email == os.getenv("ADMIN_EMAIL"):
+    st.divider()
+    st.subheader("📊 利用状況")
+
+    st.write("#### イベント別件数")
+    event_counts = get_event_counts()
+    if event_counts:
+        st.bar_chart(pd.DataFrame({"件数": event_counts}))
+    else:
+        st.caption("まだログがありません。")
+
+    st.write("#### ファネル（訪問 → プラン生成 → アクション）")
+    funnel = get_funnel_counts()
+    visited = funnel["visited"]
+    generated = funnel["generated"]
+    action_taken = funnel["action_taken"]
+    generated_rate = f"{generated / visited * 100:.1f}%" if visited else "-"
+    action_rate = f"{action_taken / generated * 100:.1f}%" if generated else "-"
+    funnel_df = pd.DataFrame({
+        "ステップ": ["訪問 (session_started)", "プラン生成 (plan_generated)", "アクション (共有/保存/コピー)"],
+        "件数": [visited, generated, action_taken],
+        "前段階からの継続率": ["-", generated_rate, action_rate]
+    })
+    st.dataframe(funnel_df, use_container_width=True, hide_index=True)
