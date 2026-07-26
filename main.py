@@ -10,6 +10,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import googlemaps
 from supabase import create_client, Client
+from location_utils import get_current_location, reverse_geocode
 
 # 1. 初期設定
 load_dotenv()
@@ -40,6 +41,9 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 if "session_logged" not in st.session_state:
     st.session_state.session_logged = False
+for k in ["current_lat", "current_lng", "current_location_name", "last_realtime_lat", "last_realtime_lng"]:
+    if k not in st.session_state:
+        st.session_state[k] = None
 
 # --- 認証セッションの復元（Streamlitは再実行のたびにsupabaseクライアントを作り直すため） ---
 if st.session_state.sb_access_token and st.session_state.sb_refresh_token:
@@ -52,17 +56,30 @@ if st.session_state.sb_access_token and st.session_state.sb_refresh_token:
         st.session_state.sb_refresh_token = None
 
 # --- 2. 関数定義 ---
+def _weather_from_response(data):
+    if data["cod"] == 200:
+        weather = data["weather"][0]["description"]
+        temp = data["main"]["temp"]
+        return {"desc": weather, "temp": temp, "text": f"天気：{weather} / 気温：{temp}°C"}
+    return None
+
 def get_weather_info(city_name):
     """世界中の都市に対応した天気情報を取得する"""
     api_key = os.getenv("OPENWEATHER_API_KEY")
     url = f"https://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={api_key}&units=metric&lang=ja"
     try:
         response = requests.get(url, timeout=5)
-        data = response.json()
-        if data["cod"] == 200:
-            weather = data["weather"][0]["description"]
-            temp = data["main"]["temp"]
-            return {"desc": weather, "temp": temp, "text": f"天気：{weather} / 気温：{temp}°C"}
+        return _weather_from_response(response.json())
+    except: pass
+    return None
+
+def get_weather_by_coords(lat, lng):
+    """緯度経度から現在地の天気情報を取得する"""
+    api_key = os.getenv("OPENWEATHER_API_KEY")
+    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lng}&appid={api_key}&units=metric&lang=ja"
+    try:
+        response = requests.get(url, timeout=5)
+        return _weather_from_response(response.json())
     except: pass
     return None
 
@@ -299,7 +316,26 @@ with st.sidebar:
     
     # --- 修正点1: 出発地点と時刻を分離 ---
     st.subheader("出発情報")
-    departure_loc = st.text_input("📍 出発地点", placeholder="例：西宮北口駅")
+
+    st.caption("📍ボタンを押すと現在地から出発地を自動入力できます")
+    departure_location = get_current_location(key="departure_geo")
+
+    if departure_location:
+        is_new_departure = (
+            st.session_state.current_lat != departure_location["lat"]
+            or st.session_state.current_lng != departure_location["lng"]
+        )
+        if is_new_departure:
+            st.session_state.current_lat = departure_location["lat"]
+            st.session_state.current_lng = departure_location["lng"]
+            place_name = reverse_geocode(gmaps, departure_location["lat"], departure_location["lng"])
+            if place_name:
+                st.session_state.current_location_name = place_name
+                st.session_state.departure_loc = place_name
+                log_event("location_departure_used")
+            st.rerun()
+
+    departure_loc = st.text_input("📍 出発地点", placeholder="例：西宮北口駅", key="departure_loc")
     departure_time = st.time_input("🕒 出発時刻", value=datetime.time(14, 0))
     
     st.divider()
@@ -441,6 +477,43 @@ if st.session_state.final_plan:
             st.session_state.last_plan_b = ask_agent(ROLES["B"], st.session_state.context_info, refine_b)
             refine_c = f"AとBを統合し、天気とリンクを維持して最終案を完成させて。"
             st.session_state.final_plan = ask_agent(ROLES["C"], st.session_state.context_info, refine_c)
+            st.rerun()
+
+    st.markdown("---")
+    st.caption("📍ボタンを押すと現在地を踏まえて再提案します")
+    realtime_location = get_current_location(key="realtime_geo")
+
+    if realtime_location:
+        is_new_realtime = (
+            st.session_state.last_realtime_lat != realtime_location["lat"]
+            or st.session_state.last_realtime_lng != realtime_location["lng"]
+        )
+        if is_new_realtime:
+            st.session_state.last_realtime_lat = realtime_location["lat"]
+            st.session_state.last_realtime_lng = realtime_location["lng"]
+            lat, lng = realtime_location["lat"], realtime_location["lng"]
+            st.session_state.current_lat = lat
+            st.session_state.current_lng = lng
+            place_name = reverse_geocode(gmaps, lat, lng)
+            if place_name:
+                st.session_state.current_location_name = place_name
+
+            with st.status("📍 現在地をもとに再提案中...", expanded=True):
+                current_weather_data = get_weather_by_coords(lat, lng)
+                current_weather_text = current_weather_data["text"] if current_weather_data else "取得失敗"
+
+                realtime_context = f"""
+    - 現在地: {place_name or "取得できませんでした"}
+    - 現在地の天気: {current_weather_text}
+    """
+                refine_a = f"現在地情報を踏まえて、現時点からの残りのプランを再提案して。\n{realtime_context}"
+                st.session_state.last_plan_a = ask_agent(ROLES["A"], st.session_state.context_info, refine_a)
+                refine_b = f"修正案: {st.session_state.last_plan_a}\n日本語で再チェックして。"
+                st.session_state.last_plan_b = ask_agent(ROLES["B"], st.session_state.context_info, refine_b)
+                refine_c = f"AとBを統合し、天気とリンクを維持して最終案を完成させて。"
+                st.session_state.final_plan = ask_agent(ROLES["C"], st.session_state.context_info, refine_c)
+
+            log_event("location_realtime_reprop_used")
             st.rerun()
 
 # --- みんなのプランを見る ---

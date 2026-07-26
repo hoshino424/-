@@ -5,3 +5,4 @@ googlemaps
 requests
 supabase
 pandas
+streamlit-geolocation==0.0.10
