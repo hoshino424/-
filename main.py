@@ -249,6 +249,15 @@ st.set_page_config(page_title="旅行計画立て直しAI", page_icon="🧳", la
 st.title("✈️ 旅行計画立て直しAI")
 st.caption("旅行先での営業時間や天候の変化にも、その場でスムーズに立て直せます")
 
+with st.expander("📖 使い方", expanded=False):
+    st.markdown("""
+1️⃣ サイドバーに出発地・日時を入力(フライト情報・予算は旅行前にプランを立てる場合の入力がおすすめ)
+2️⃣ 行き先欄に「都市名(英語) 滞在日数」を入力(例: Osaka 2)
+3️⃣「プラン作成」ボタンでAIが自動作成(理想案→現実チェック→まとめの3段階)
+4️⃣ プラン完成後、下のチャット欄で「もっと〇〇入れて」等リクエストするとその場で再調整
+5️⃣ 気に入ったプランは保存・共有・公開OK。「みんなのプランを見る」で他の人のプランも閲覧・コピーできる
+""")
+
 if not st.session_state.session_logged:
     log_event("session_started")
     st.session_state.session_logged = True
